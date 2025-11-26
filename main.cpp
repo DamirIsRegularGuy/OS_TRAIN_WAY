@@ -5,6 +5,7 @@
 #include <map>
 #include <chrono>
 #include <queue>
+#include <algorithm>
 
 std::map<std::string, std::unique_ptr<std::binary_semaphore>> sems;
 std::mutex m;
@@ -34,7 +35,7 @@ void train_way(std::string station, std::thread::id train_id){
     sem->acquire();
     {
         std::lock_guard<std::mutex> lock(m);
-        std::cout << "["<< now() << "] " <<  " Train " << train_id << " move towords station " << station << "\n";
+        std::cout << "["<< now() << "] " <<  "Train " << train_id << " move towords station " << station << "\n";
     }
 
     std::this_thread::sleep_for(std::chrono::seconds(1 + std::rand() % 10));
@@ -68,19 +69,21 @@ int main(){
 
     std::vector<std::jthread> trains;
     trains.reserve(8);
+    std::vector<std::string> route = allRoutes[std::rand() % allRoutes.size()];
 
-    for (int i = 1; i <= 8; ++i) {
-        std::vector<std::string> r = allRoutes[(i - 1) % 6];
-        trains.emplace_back([r]() {
+    for (int i = 0; i < 8; ++i) {
+        std::vector<std::string> trainRoute = route;
+        std::rotate(trainRoute.begin(), trainRoute.begin() + (i % route.size()), trainRoute.end());
+        trains.emplace_back([trainRoute]() {
             {
                 std::lock_guard<std::mutex> lock(m);
-                std::cout << "Train " << std::this_thread::get_id() << " has route " << r[0] << " - "<< r[r.size()-1] << "\n";
+                std::cout << "Train " << std::this_thread::get_id()
+                          << " has route " << trainRoute[0] << " - " << trainRoute[trainRoute.size() - 1] << "\n";
             }
-                for (auto& way : r) {
-                    train_way(way, std::this_thread::get_id());
-                }
+            for (auto& way : trainRoute) {
+                train_way(way, std::this_thread::get_id());
+            }
         });
-
     }
 
     {
