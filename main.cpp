@@ -6,9 +6,14 @@
 #include <chrono>
 #include <queue>
 #include <algorithm>
+#include <condition_variable>
 
 std::map<std::string, std::unique_ptr<std::binary_semaphore>> sems;
 std::mutex m;
+
+std::condition_variable cv;
+std::mutex cv_m;
+bool stop = false;
 
 std::string now() {
     time_t t = time(nullptr);
@@ -19,6 +24,11 @@ std::string now() {
 }
 
 void train_way(std::string station, std::thread::id train_id){
+    {
+        std::lock_guard<std::mutex> lock(cv_m);
+        if(stop) return;
+    }
+
     std::binary_semaphore* sem;
     {
         std::lock_guard<std::mutex> lock(m);
@@ -32,11 +42,12 @@ void train_way(std::string station, std::thread::id train_id){
         }
     }
 
-    sem->acquire();
     {
         std::lock_guard<std::mutex> lock(m);
         std::cout << "["<< now() << "] " <<  "Train " << train_id << " move towords station " << station << "\n";
     }
+
+    sem->acquire();
 
     std::this_thread::sleep_for(std::chrono::seconds(1 + std::rand() % 10));
 
@@ -57,6 +68,16 @@ void train_way(std::string station, std::thread::id train_id){
 
 int main(){
     srand(time(NULL));
+
+    std::jthread stopped([](){
+        std::cout << "Press Enter to stopped simulation\n";
+        std::cin.get();
+        {
+            std::lock_guard<std::mutex> lk(cv_m);
+            stop = true;
+        }
+        cv.notify_all();
+    });
 
     std::vector<std::string> routeA = {"Dushanbe", "Vahdat", "Obigarm", "Rasht", "Nurobod"};
     std::vector<std::string> routeB = {"Khujand", "Gafurov", "Buston", "Dushanbe", "Vahdat"};
@@ -80,10 +101,26 @@ int main(){
                 std::cout << "Train " << std::this_thread::get_id()
                           << " has route " << trainRoute[0] << " - " << trainRoute[trainRoute.size() - 1] << "\n";
             }
-            for (auto& way : trainRoute) {
-                train_way(way, std::this_thread::get_id());
+            std::unique_lock<std::mutex> lk(cv_m);
+            while(!stop){
+                lk.unlock();
+                for (auto& way : trainRoute) {
+                    {
+                        std::lock_guard<std::mutex> lock(cv_m);
+                        if(stop) break;
+                    }
+                    train_way(way, std::this_thread::get_id());
+                }
+
+                lk.lock();
+                cv.wait_for(lk, std::chrono::microseconds(10), []{return stop;});
+            }
+            {
+                std::lock_guard<std::mutex> lock(m);
+                std::cout << "Train " << std::this_thread::get_id() << " stopped.\n";
             }
         });
+
     }
 
     {
