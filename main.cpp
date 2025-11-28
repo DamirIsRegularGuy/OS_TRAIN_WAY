@@ -8,7 +8,15 @@
 #include <algorithm>
 #include <condition_variable>
 
-std::map<std::string, std::unique_ptr<std::binary_semaphore>> sems;
+enum class Direction {
+    north,
+    south
+};
+
+std::map<std::string, std::pair<
+        std::unique_ptr<std::binary_semaphore>,
+        std::unique_ptr<std::binary_semaphore>>
+        > sems;
 std::mutex m;
 
 std::condition_variable cv;
@@ -23,7 +31,7 @@ std::string now() {
     return buf;
 }
 
-void train_way(std::string station, std::thread::id train_id){
+void train_way(std::string station, std::thread::id train_id, Direction dir){
     {
         std::lock_guard<std::mutex> lock(cv_m);
         if(stop) return;
@@ -34,17 +42,20 @@ void train_way(std::string station, std::thread::id train_id){
         std::lock_guard<std::mutex> lock(m);
         auto it = sems.find(station);
         if(it == sems.end()){
-            sems[station] = std::make_unique<std::binary_semaphore>(1);
-            sem = sems[station].get();
+            sems[station] = {
+                    std::make_unique<std::binary_semaphore>(1),
+                    std::make_unique<std::binary_semaphore>(1)
+                };
+            sem = (dir == Direction::north) ? sems[station].first.get() : sems[station].second.get();
         }
         else{
-            sem = it->second.get();
+            sem = (dir == Direction::north) ? it->second.first.get() : it->second.second.get();
         }
     }
 
     {
         std::lock_guard<std::mutex> lock(m);
-        std::cout << "["<< now() << "] " <<  "Train " << train_id << " move towords station " << station << "\n";
+        std::cout << "["<< now() << "] " <<  "Train " << train_id << " move towords station " << station << " from the " << ((dir == Direction::north) ? "north" : "south") << "\n";
     }
 
     sem->acquire();
@@ -53,14 +64,14 @@ void train_way(std::string station, std::thread::id train_id){
 
     {
         std::lock_guard<std::mutex> lock(m);
-        std::cout << "["<< now() << "] " << "Train " << train_id << " arrived at station " << station << "\n";
+        std::cout << "["<< now() << "] " << "Train " << train_id << " arrived at station " << station << " from the " << ((dir == Direction::north) ? "north" : "south") <<  "\n";
     }
 
     std::this_thread::sleep_for(std::chrono::seconds(1 + std::rand() % 10));
 
     {
         std::lock_guard<std::mutex> lock(m);
-        std::cout << "["<< now() << "] " << "Train " << train_id << " left station " << station << "\n";
+        std::cout << "["<< now() << "] " << "Train " << train_id << " left station " << station << " in the " << ((dir == Direction::north) ? "north" : "south") <<  "\n";
     }
 
     sem->release();
@@ -70,7 +81,7 @@ int main(){
     srand(time(NULL));
 
     std::jthread stopped([](){
-        std::cout << "Press Enter to stopped simulation\n";
+        std::cout << "...\nPress Enter to stopped simulation\n...\n\n";
         std::cin.get();
         {
             std::lock_guard<std::mutex> lk(cv_m);
@@ -94,12 +105,18 @@ int main(){
 
     for (int i = 0; i < 8; ++i) {
         std::vector<std::string> trainRoute = route;
-        std::rotate(trainRoute.begin(), trainRoute.begin() + (i % route.size()), trainRoute.end());
-        trains.emplace_back([trainRoute]() {
+        Direction dir = (rand() % 2 == 0) ? Direction::north : Direction::south;
+        if(dir == Direction::south){
+            std::rotate(trainRoute.begin(), trainRoute.begin() + (i % route.size()), trainRoute.end());
+        } else {
+            std::reverse(trainRoute.begin(), trainRoute.end());
+            std::rotate(trainRoute.begin(), trainRoute.begin() + (i % route.size()), trainRoute.end());
+        }
+        trains.emplace_back([trainRoute, dir]() {
             {
                 std::lock_guard<std::mutex> lock(m);
                 std::cout << "Train " << std::this_thread::get_id()
-                          << " has route " << trainRoute[0] << " - " << trainRoute[trainRoute.size() - 1] << "\n";
+                          << " has route " << trainRoute[0] << " - " << trainRoute[trainRoute.size() - 1]  << " in the " << ((dir == Direction::north) ? "north" : "south") << "\n";
             }
             std::unique_lock<std::mutex> lk(cv_m);
             while(!stop){
@@ -109,7 +126,7 @@ int main(){
                         std::lock_guard<std::mutex> lock(cv_m);
                         if(stop) break;
                     }
-                    train_way(way, std::this_thread::get_id());
+                    train_way(way, std::this_thread::get_id(), dir);
                 }
 
                 lk.lock();
@@ -120,6 +137,9 @@ int main(){
                 std::cout << "Train " << std::this_thread::get_id() << " stopped.\n";
             }
         });
+        if(dir == Direction::north) {
+            std::reverse(trainRoute.begin(), trainRoute.end());
+        }
 
     }
 
