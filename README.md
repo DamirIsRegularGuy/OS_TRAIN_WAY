@@ -56,7 +56,6 @@ Train 7 has route Khujand - Gafurov in the north
 Train 5 has route Buston - Gafurov in the south
 Train 9 has route Gafurov - Khujand in the south
 
-=== SIMULATION COMPLETE ===
 [08:18:57] Train 3 move towords station Vahdat from the north
 [08:18:57] Train 4 move towords station Gafurov from the south
 [08:18:57] Train 6 move towords station Dushanbe from the south
